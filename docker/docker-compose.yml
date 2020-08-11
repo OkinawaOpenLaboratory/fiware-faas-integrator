@@ -1,0 +1,86 @@
+version: '3'
+
+services:
+  mongo:
+    image: mongo:3.6
+    command: --nojournal
+    restart: always
+    networks:
+      - proxynet
+
+  orion:
+    image: fiware/orion
+    depends_on:
+      - mongo
+    ports:
+      - "1026:1026"
+    command: -dbhost mongo
+    networks:
+      - proxynet
+
+  meteoroid:
+    build: ../
+    image: meteoroid/core:1.0
+    stdin_open: true
+    tty: true
+    depends_on:
+      - migration
+      - orion
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../meteoroid:/opt/meteoroid/meteoroid
+    environment:
+      - OPEN_WHISK_HOST=apigateway
+      - OPEN_WHISK_APIGATEWAY_PORT=8080
+      - OPEN_WHISK_USER=23bc46b1-71f6-4ed5-8c54-816aa4f8c502
+      - OPEN_WHISK_PASSWORD=123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP
+      - FIWARE_ORION_HOST=orion:1026
+    command: python meteoroid/manage.py runserver 0.0.0.0:3000
+    networks:
+      - proxynet
+
+  migration:
+    build: ../
+    image: meteoroid/core:1.0
+    command: python meteoroid/manage.py migrate
+    links:
+      - mongo
+    depends_on:
+      - mongo
+    environment:
+      - OPEN_WHISK_HOST=apigateway
+      - OPEN_WHISK_USER=23bc46b1-71f6-4ed5-8c54-816aa4f8c502
+      - OPEN_WHISK_PASSWORD=123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP
+      - FIWARE_ORION_HOST=orion:1026
+    networks:
+      - proxynet
+
+  alarm-package-installer:
+    build: ./alarm-package-installer/
+    image: meteoroid/alarm-package-installer:1.0
+    working_dir: /openwhisk-package-alarms
+    command: ./installCatalog.sh 789c46b1-71f6-4ed5-8c54-816aa4f8c502:abczO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP apigateway http://db:5984 whisk apigateway
+    environment:
+      - OPENWHISK_HOME=/usr/local
+    networks:
+      - proxynet
+
+  alarmprovider:
+    image: openwhisk/alarmprovider
+    environment:
+      - PORT=8080
+      - ROUTER_HOST=apigateway
+      - DB_PREFIX=whisk
+      - DB_USERNAME=whisk_admin
+      - DB_PASSWORD=some_passw0rd
+      - DB_HOST=db:5984
+      - DB_PROTOCOL=http
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - proxynet
+
+networks:
+  proxynet:
+    external:
+      name: openwhisk_default
